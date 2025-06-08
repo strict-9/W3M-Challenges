@@ -27,8 +27,8 @@
       <a :href="config.submissionForm" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Submit your track</a>
     </template>
 
-    <template x-if="phase==='results' && scores.length">
-      <button class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-500" @click="showScoreboard=true">View Results</button>
+    <template x-if="phase==='results' && totalJudges>0">
+      <button class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-500" @click="computeScores(); showScoreboard=true">View Results</button>
     </template>
   </main>
 
@@ -79,7 +79,7 @@
           </tbody>
         </table>
 
-        <p class="text-right font-semibold">Total: <span x-text="calcTotal(song.id).toFixed(2)"></span></p>
+        <p class="text-right font-semibold">Total: <span x-text="calcTotal(song.id, votes).toFixed(2)"></span></p>
       </section>
     </template>
   </div>
@@ -93,9 +93,14 @@
         <p>No scores yet…</p>
       </template>
       <ul class="space-y-2" x-show="scores.length">
-        <template x-for="row in scores" :key="row.song">
+        <template x-for="(row, idx) in scores" :key="row.song">
           <li class="flex justify-between border-b border-gray-700 pb-1">
-            <span x-text="row.song"></span>
+            <span>
+              <template x-if="idx===0">🥇 </template>
+              <template x-if="idx===1">🥈 </template>
+              <template x-if="idx===2">🥉 </template>
+              <span x-text="row.song"></span>
+            </span>
             <span class="font-mono" x-text="row.total.toFixed(2)"></span>
           </li>
         </template>
@@ -105,8 +110,8 @@
 
   <!-- ========= ADMIN PANEL ========= -->
   <div class="fixed inset-0 bg-black/80 backdrop-blur overflow-y-auto p-6" x-show="isAdmin" x-transition>
-    <div class="bg-gray-900 w-full max-w-3xl mx-auto rounded-xl p-8 space-y-6">
-      <h2 class="text-3xl font-bold mb-2">Challenge Settings</h2>
+    <div class="bg-gray-900 w-full max-w-3xl mx-auto rounded-xl p-8 space-y-8">
+      <h2 class="text-3xl font-bold">Challenge Settings</h2>
       <fieldset class="grid sm:grid-cols-2 gap-4">
         <label class="flex flex-col gap-1">
           <span>Name</span>
@@ -125,21 +130,33 @@
           <input type="date" class="p-2 bg-gray-800 rounded" x-model="config.deadlines.judge" />
         </label>
         <label class="flex flex-col gap-1">
-          <span>Listening Party (ISO datetime, optional)</span>
+          <span>Listening Party (ISO datetime, optional)</span>
           <input type="datetime-local" class="p-2 bg-gray-800 rounded" x-model="config.listeningParty" />
         </label>
         <label class="flex flex-col gap-1">
           <span>Submission Form URL</span>
           <input type="url" class="p-2 bg-gray-800 rounded" x-model="config.submissionForm" />
         </label>
-        <!-- Future: criteria, songs, judges CRUD tables -->
+        <!-- Additional CRUD for criteria / songs / judges will go here -->
       </fieldset>
 
+      <!-- Votes import -->
+      <div class="space-y-4">
+        <h3 class="text-2xl font-bold">Judge Votes</h3>
+        <p class="text-sm text-gray-400">Import each judge’s exported JSON. The filename should be <code>votes-JUDGE.json</code>.</p>
+        <label class="px-4 py-2 bg-amber-600 rounded hover:bg-amber-500 cursor-pointer inline-block">
+          Import Judge Votes
+          <input type="file" class="hidden" @change="importJudgeVotes($event)" accept="application/json" />
+        </label>
+        <p class="text-sm text-gray-400" x-text="`${importedJudges} / ${config.judges.length} judges imported`"></p>
+        <button class="px-4 py-2 bg-purple-600 rounded hover:bg-purple-500" @click="computeScores">Recalculate Results</button>
+      </div>
+
       <div class="flex gap-4 pt-4 border-t border-gray-700">
-        <button class="px-4 py-2 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveConfig">Save</button>
-        <button class="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportConfig">Export JSON</button>
+        <button class="px-4 py-2 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveConfig">Save Config</button>
+        <button class="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportConfig">Export Config JSON</button>
         <label class="px-4 py-2 bg-amber-600 rounded hover:bg-amber-500 cursor-pointer">
-          Import JSON
+          Import Config JSON
           <input type="file" class="hidden" @change="importConfig($event)" accept="application/json" />
         </label>
       </div>
@@ -161,9 +178,12 @@
         judgeToken: null,
         isJudge: false,
         votes: {},
+        votesByJudge: {},
         scores: [],
         toast: { show: false, msg: '' },
         countdown: '',
+        totalJudges: 0,
+        importedJudges: 0,
         // === lifecycle ===
         init() {
           this.loadConfig();
@@ -173,6 +193,8 @@
           this.judgeToken = params.get('judge');
           this.isJudge = this.phase==='judge' && this.judgeToken && this.config.judges.includes(this.judgeToken);
           if (this.isJudge) this.loadVotes();
+          this.totalJudges = this.config.judges.length;
+          if (this.phase==='results') { this.loadAllVotes(); this.computeScores(); }
           if (this.phase==='party') this.startCountdown();
         },
         // === config ===
@@ -214,14 +236,14 @@
             default:       return {text:'Results', bg:'bg-purple-700'};
           }
         },
-        // === voting ===
-        voteKey() { return `votes-${this.judgeToken}`; },
+        // === voting (judge side) ===
+        voteKey(token){ return `votes-${token}`; },
         loadVotes() {
-          const raw = localStorage.getItem(this.voteKey());
+          const raw = localStorage.getItem(this.voteKey(this.judgeToken));
           this.votes = raw ? JSON.parse(raw) : {};
         },
         saveVotes() {
-          localStorage.setItem(this.voteKey(), JSON.stringify(this.votes));
+          localStorage.setItem(this.voteKey(this.judgeToken), JSON.stringify(this.votes));
           this.toastMsg('Votes saved locally');
         },
         updateVote(songId, critId, val) {
@@ -231,14 +253,53 @@
         getVote(songId, critId) {
           return this.votes[songId]?.[critId] ?? '';
         },
-        calcTotal(songId) {
-          const songVotes = this.votes[songId] || {};
-          return this.config.criteria.reduce((sum,c)=>sum+( (songVotes[c.id]||0)*c.weight),0);
+        calcTotal(songId, voteSet) {
+          const votesSong = voteSet[songId] || {};
+          return this.config.criteria.reduce((sum,c)=>sum+((votesSong[c.id]||0)*c.weight),0);
         },
         exportVotes() {
           const blob = new Blob([JSON.stringify(this.votes,null,2)], {type:'application/json'});
           const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:`votes-${this.judgeToken}.json` });
           a.click(); URL.revokeObjectURL(a.href);
+        },
+        // === admin vote import & results ===
+        loadAllVotes() {
+          this.votesByJudge = {};
+          this.importedJudges = 0;
+          this.config.judges.forEach(j=>{
+            const raw = localStorage.getItem(this.voteKey(j));
+            if(raw){ this.votesByJudge[j] = JSON.parse(raw); this.importedJudges++; }
+          });
+        },
+        importJudgeVotes(e){
+          const file = e.target.files[0]; if(!file) return;
+          const judgeMatch = file.name.match(/votes-(.*?)\.json/i);
+          const judgeId = judgeMatch ? judgeMatch[1] : prompt('Enter judge token for this file');
+          if(!judgeId){ this.toastMsg('Import cancelled'); return; }
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const data = JSON.parse(reader.result);
+              localStorage.setItem(this.voteKey(judgeId), JSON.stringify(data));
+              this.toastMsg(`Votes imported for ${judgeId}`);
+              this.loadAllVotes();
+            } catch(err){ this.toastMsg('Invalid JSON'); }
+          };
+          reader.readAsText(file);
+        },
+        computeScores() {
+          this.loadAllVotes();
+          const totals = this.config.songs.map(s=>({ song:s.title, total:0 }));
+          const judgeCount = Object.keys(this.votesByJudge).length || 1;
+          Object.entries(this.votesByJudge).forEach(([judge,voteSet])=>{
+            totals.forEach(t=>{
+              const songObj = this.config.songs.find(s=>s.title===t.song);
+              t.total += this.calcTotal(songObj.id, voteSet);
+            });
+          });
+          // average
+          totals.forEach(t=>{ t.total = t.total / judgeCount; });
+          this.scores = totals.sort((a,b)=>b.total-a.total);
         },
         // === toast helper ===
         toastMsg(msg){this.toast.msg=msg; this.toast.show=true; setTimeout(()=>this.toast.show=false,2500);},
