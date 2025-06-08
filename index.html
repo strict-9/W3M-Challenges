@@ -9,198 +9,223 @@
   <!-- Alpine.js -->
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="h-full flex flex-col" x-data="portal()" x-init="init()">
-  <!-- ========= PUBLIC LANDING ========= -->
-  <main class="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-6" x-show="!isJudge">
-    <h1 class="text-4xl font-extrabold tracking-tight" x-text="config.name"></h1>
-    <p class="max-w-xl" x-text="config.description"></p>
+<body class="h-full" x-data="portal()" x-init="init()">
+  <!-- Toast -->
+  <template x-if="toast.show">
+    <div class="fixed top-3 right-3 bg-gray-800 px-4 py-2 rounded shadow-lg border border-gray-700" x-text="toast.msg" x-transition></div>
+  </template>
 
-    <!-- Phase banner -->
-    <div class="px-4 py-2 rounded-lg shadow-md" :class="phaseBanner.bg">
-      <span class="font-semibold" x-text="phaseBanner.text"></span>
-      <template x-if="phase==='party'">
-        <span class="ml-2" x-text="countdown"></span>
-      </template>
-    </div>
+  <!-- Top bar -->
+  <header class="p-4 border-b border-gray-800 flex justify-between items-center">
+    <h1 class="text-2xl font-bold">Web3 Metal Challenge</h1>
+    <template x-if="phase==='judge' && judgeToken">
+      <span class="text-xs bg-gray-800 px-2 py-1 rounded">Judge: <span x-text="judgeToken"></span></span>
+    </template>
+    <template x-if="hashAdmin">
+      <span class="text-xs bg-yellow-600 px-2 py-1 rounded">Admin Mode</span>
+    </template>
+  </header>
 
-    <template x-if="phase==='submit'">
-      <a :href="config.submissionForm" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Submit your track</a>
+  <!-- ===== PUBLIC LANDING ===== -->
+  <main class="p-6 space-y-6 max-w-4xl mx-auto">
+    <!-- Submit banner -->
+    <template x-if="phase==='submit' && !hashAdmin && !isJudge">
+      <div class="border border-gray-700 p-6 rounded text-center">
+        <h2 class="text-xl font-semibold mb-2" x-text="config.name"></h2>
+        <p class="mb-4" x-text="config.description"></p>
+        <p class="font-bold text-lg text-indigo-400">Submit your track!</p>
+      </div>
     </template>
 
-    <template x-if="phase==='results' && totalJudges>0">
-      <button class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-500" @click="computeScores(); showScoreboard=true">View Results</button>
+    <!-- Judging banner -->
+    <template x-if="phase==='judge' && !isJudge && !hashAdmin">
+      <div class="border border-gray-700 p-6 rounded text-center">
+        <p class="text-lg font-semibold">Judging in progress…</p>
+      </div>
+    </template>
+
+    <!-- Party banner -->
+    <template x-if="phase==='party' && !hashAdmin">
+      <div class="border border-gray-700 p-6 rounded text-center">
+        <h2 class="text-xl font-semibold mb-2">Listening Party</h2>
+        <p x-text="countdown"></p>
+      </div>
+    </template>
+
+    <!-- Results banner/button -->
+    <template x-if="phase==='results' && !hashAdmin">
+      <div class="text-center">
+        <button @click="showResults=true; computeScores()" class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded">View Results</button>
+      </div>
     </template>
   </main>
 
-  <!-- ========= JUDGE PANEL ========= -->
-  <div class="flex-1 overflow-y-auto" x-show="isJudge">
-    <header class="p-4 bg-gray-900 flex items-center justify-between sticky top-0 z-10 shadow">
-      <h2 class="text-2xl font-bold" x-text="`Judge Panel – ${judgeToken}`"></h2>
-      <div class="flex gap-2">
-        <button class="px-3 py-1 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveVotes">Save</button>
-        <button class="px-3 py-1 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportVotes">Export JSON</button>
-      </div>
-    </header>
-
-    <template x-if="config.songs.length===0">
-      <p class="p-6 text-center">No songs configured yet…</p>
-    </template>
-
-    <template x-for="song in config.songs" :key="song.id">
-      <section class="border-b border-gray-800 p-6 space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-xl font-semibold" x-text="song.title"></h3>
-            <template x-if="song.artist"><p class="text-sm text-gray-400" x-text="song.artist"></p></template>
-          </div>
-          <template x-if="song.link">
-            <a :href="song.link" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Listen</a>
-          </template>
-        </div>
-
+  <!-- ===== RESULTS MODAL ===== -->
+  <template x-if="showResults">
+    <div class="fixed inset-0 bg-black/70 flex items-start justify-center pt-10" @click.self="showResults=false" x-transition>
+      <div class="bg-gray-900 rounded-lg shadow-lg max-w-3xl w-full p-6 space-y-4">
+        <h3 class="text-xl font-bold mb-4">Results</h3>
         <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-gray-400">
-              <th class="py-1">Criterion</th>
-              <th class="py-1 w-24 text-right">Weight</th>
-              <th class="py-1 w-48 text-right">Score&nbsp;(0‑10)</th>
+          <thead class="bg-gray-800 text-gray-300">
+            <tr>
+              <th class="px-2 py-1 text-left">Rank</th>
+              <th class="px-2 py-1 text-left">Song</th>
+              <th class="px-2 py-1 text-right">Score</th>
             </tr>
           </thead>
           <tbody>
-            <template x-for="crit in config.criteria" :key="crit.id">
-              <tr>
-                <td class="py-1 pr-2" x-text="crit.label"></td>
-                <td class="py-1 pr-2 text-right" x-text="crit.weight"></td>
-                <td class="py-1 text-right">
-                  <input type="number" min="0" max="10" step="0.1" class="w-20 p-1 bg-gray-800 rounded text-right" :id="`${song.id}__${crit.id}`" @input="updateVote(song.id, crit.id, $event.target.value)" :value="getVote(song.id, crit.id)">
-                </td>
+            <template x-for="(row, idx) in results" :key="row.id">
+              <tr class="border-b border-gray-800 hover:bg-gray-800/50">
+                <td class="px-2 py-1" x-text="medal(idx)"></td>
+                <td class="px-2 py-1" x-text="row.title"></td>
+                <td class="px-2 py-1 text-right" x-text="row.total.toFixed(2)"></td>
               </tr>
             </template>
           </tbody>
         </table>
+      </div>
+    </div>
+  </template>
 
-        <p class="text-right font-semibold">Total: <span x-text="calcTotal(song.id, votes).toFixed(2)"></span></p>
-      </section>
-    </template>
-  </div>
-
-  <!-- ========= SCOREBOARD ========= -->
-  <div class="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center p-6" x-show="showScoreboard" x-transition>
-    <div class="bg-gray-900 w-full max-w-2xl rounded-xl p-6 space-y-4 relative">
-      <button class="absolute right-4 top-4 text-xl" @click="showScoreboard=false">✕</button>
-      <h2 class="text-2xl font-bold mb-4">Results</h2>
-      <template x-if="scores.length===0">
-        <p>No scores yet…</p>
+  <!-- ===== VOTING DASHBOARD ===== -->
+  <template x-if="isJudge && phase==='judge'">
+    <div class="p-6 max-w-5xl mx-auto space-y-10">
+      <template x-for="song in config.songs" :key="song.id">
+        <div class="border border-gray-800 rounded p-4 space-y-4">
+          <div class="flex justify-between items-center">
+            <h2 class="font-semibold text-lg" x-text="song.title"></h2>
+            <a :href="song.link" target="_blank" class="text-indigo-400 text-sm underline">Listen</a>
+          </div>
+          <!-- Criteria controls -->
+          <div class="space-y-3">
+            <template x-for="crit in config.criteria" :key="crit.id">
+              <div>
+                <!-- Slider UI -->
+                <template x-if="crit.type==='slider' || !crit.type">
+                  <div class="space-y-1">
+                    <div class="flex justify-between">
+                      <span x-text="crit.settings.label"></span>
+                      <span class="text-xs text-gray-400" x-text="voteValue(song.id,crit.id)"></span>
+                    </div>
+                    <input type="range" min="0" max="10" step="1" :id="song.id+'-'+crit.id" x-model.number="votes[song.id][crit.id]" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                  </div>
+                </template>
+                <!-- Checkbox UI -->
+                <template x-if="crit.type==='checkbox'">
+                  <label class="flex items-center gap-2">
+                    <input type="checkbox" x-model="votes[song.id][crit.id]" class="text-indigo-600"> <span x-text="crit.settings.label"></span>
+                  </label>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
       </template>
-      <ul class="space-y-2" x-show="scores.length">
-        <template x-for="(row, idx) in scores" :key="row.song">
-          <li class="flex justify-between border-b border-gray-700 pb-1">
-            <span>
-              <template x-if="idx===0">🥇 </template>
-              <template x-if="idx===1">🥈 </template>
-              <template x-if="idx===2">🥉 </template>
-              <span x-text="row.song"></span>
-            </span>
-            <span class="font-mono" x-text="row.total.toFixed(2)"></span>
-          </li>
-        </template>
-      </ul>
+      <button @click="saveVotes" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded">Save Votes</button>
     </div>
-  </div>
+  </template>
 
-  <!-- ========= ADMIN PANEL ========= -->
-  <div class="fixed inset-0 bg-black/80 backdrop-blur overflow-y-auto p-6" x-show="isAdmin" x-transition>
-    <div class="bg-gray-900 w-full max-w-3xl mx-auto rounded-xl p-8 space-y-8">
-      <h2 class="text-3xl font-bold">Challenge Settings</h2>
-      <fieldset class="grid sm:grid-cols-2 gap-4">
-        <label class="flex flex-col gap-1">
-          <span>Name</span>
-          <input type="text" class="p-2 bg-gray-800 rounded" x-model="config.name" />
-        </label>
-        <label class="flex flex-col gap-1 sm:col-span-2">
-          <span>Description</span>
-          <textarea rows="2" class="p-2 bg-gray-800 rounded" x-model="config.description"></textarea>
-        </label>
-        <label class="flex flex-col gap-1">
-          <span>Submit Until</span>
-          <input type="date" class="p-2 bg-gray-800 rounded" x-model="config.deadlines.submit" />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span>Judge Until</span>
-          <input type="date" class="p-2 bg-gray-800 rounded" x-model="config.deadlines.judge" />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span>Listening Party (ISO datetime, optional)</span>
-          <input type="datetime-local" class="p-2 bg-gray-800 rounded" x-model="config.listeningParty" />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span>Submission Form URL</span>
-          <input type="url" class="p-2 bg-gray-800 rounded" x-model="config.submissionForm" />
-        </label>
-        <!-- Additional CRUD for criteria / songs / judges will go here -->
-      </fieldset>
+  <!-- ===== ADMIN PANEL ===== -->
+  <template x-if="hashAdmin">
+    <div class="fixed inset-0 bg-black/70 flex items-start justify-center pt-10" x-transition>
+      <div class="bg-gray-900 rounded-lg shadow-lg max-w-4xl w-full p-6 overflow-y-auto h-[90vh]" @click.outside="hashAdmin=false">
+        <h2 class="text-xl font-bold mb-4">Challenge Settings</h2>
 
-      <!-- Votes import -->
-      <div class="space-y-4">
-        <h3 class="text-2xl font-bold">Judge Votes</h3>
-        <p class="text-sm text-gray-400">Import each judge’s exported JSON. The filename should be <code>votes-JUDGE.json</code>.</p>
-        <label class="px-4 py-2 bg-amber-600 rounded hover:bg-amber-500 cursor-pointer inline-block">
-          Import Judge Votes
-          <input type="file" class="hidden" @change="importJudgeVotes($event)" accept="application/json" />
-        </label>
-        <p class="text-sm text-gray-400" x-text="`${importedJudges} / ${config.judges.length} judges imported`"></p>
-        <button class="px-4 py-2 bg-purple-600 rounded hover:bg-purple-500" @click="computeScores">Recalculate Results</button>
-      </div>
+        <div class="space-y-4">
+          <label class="block">Name <input x-model="config.name" class="mt-1 bg-gray-800 w-full p-2 rounded"></label>
+          <label class="block">Description <textarea x-model="config.description" class="mt-1 bg-gray-800 w-full p-2 rounded"></textarea></label>
 
-      <div class="flex gap-4 pt-4 border-t border-gray-700">
-        <button class="px-4 py-2 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveConfig">Save Config</button>
-        <button class="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportConfig">Export Config JSON</button>
-        <label class="px-4 py-2 bg-amber-600 rounded hover:bg-amber-500 cursor-pointer">
-          Import Config JSON
-          <input type="file" class="hidden" @change="importConfig($event)" accept="application/json" />
-        </label>
+          <!-- Dates -->
+          <div class="grid grid-cols-2 gap-4">
+            <label class="block">Submit Until <input type="date" x-model="config.submitUntil" class="mt-1 bg-gray-800 w-full p-2 rounded"></label>
+            <label class="block">Judge Until <input type="date" x-model="config.judgeUntil" class="mt-1 bg-gray-800 w-full p-2 rounded"></label>
+            <label class="block col-span-2">Listening Party (optional) <input type="datetime-local" x-model="config.listeningParty" class="mt-1 bg-gray-800 w-full p-2 rounded"></label>
+          </div>
+
+          <!-- ===== CRITERIA BUILDER ===== -->
+          <div class="border border-gray-700 p-4 rounded">
+            <h3 class="font-semibold mb-2">Judging Criteria</h3>
+            <template x-for="(crit, idx) in config.criteria" :key="crit.id">
+              <div class="flex items-center gap-2 mb-2 bg-gray-800/40 p-2 rounded">
+                <!-- reorder -->
+                <div class="flex flex-col text-xs">
+                  <button @click="idx>0 && swap(config.criteria, idx, idx-1)" title="Move up">▲</button>
+                  <button @click="idx < config.criteria.length-1 && swap(config.criteria, idx, idx+1)" title="Move down">▼</button>
+                </div>
+                <!-- type -->
+                <select x-model="crit.type" class="bg-gray-800 rounded px-1 text-xs">
+                  <option value="slider">slider</option>
+                  <option value="checkbox">checkbox</option>
+                </select>
+                <!-- label -->
+                <input x-model="crit.settings.label" placeholder="Label" class="bg-gray-800 rounded px-1 text-xs w-32">
+                <!-- slider fields -->
+                <template x-if="crit.type==='slider'">
+                  <input type="number" x-model.number="crit.settings.weight" placeholder="weight" class="bg-gray-800 rounded px-1 text-xs w-16">
+                </template>
+                <!-- checkbox fields -->
+                <template x-if="crit.type==='checkbox'">
+                  <input type="number" x-model.number="crit.settings.score" placeholder="score" class="bg-gray-800 rounded px-1 text-xs w-16">
+                  <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="crit.settings.checked"> default</label>
+                </template>
+                <!-- delete -->
+                <button @click="config.criteria.splice(idx,1)" class="text-red-400 text-xs px-1">✕</button>
+              </div>
+            </template>
+            <div class="flex gap-2 mt-2">
+              <button @click="addCriterion('slider')" class="bg-gray-700 rounded px-2 py-1 text-xs">+ Slider</button>
+              <button @click="addCriterion('checkbox')" class="bg-gray-700 rounded px-2 py-1 text-xs">+ Checkbox</button>
+            </div>
+          </div>
+
+          <!-- Buttons -->
+          <div class="flex gap-3 pt-4">
+            <button @click="saveConfig" class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded">Save</button>
+            <button @click="exportConfig" class="bg-gray-700 px-4 py-2 rounded">Export JSON</button>
+            <label class="bg-gray-700 px-4 py-2 rounded cursor-pointer">Import JSON<input type="file" class="hidden" @change="importConfig($event)"></label>
+            <label class="bg-gray-700 px-4 py-2 rounded cursor-pointer">Import Judge Votes<input type="file" class="hidden" @change="importVotes($event)"></label>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  </template>
 
-  <!-- ========= TOAST ========= -->
-  <div class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 px-4 py-2 rounded-lg" x-show="toast.show" x-text="toast.msg" x-transition></div>
-
-  <!-- ========= SCRIPT ========= -->
   <script>
     function portal() {
       return {
-        // === state ===
-        config: null,
-        phase: 'submit',
-        showScoreboard: false,
-        isAdmin: false,
-        judgeToken: null,
-        isJudge: false,
+        // state
+        config: {},
         votes: {},
-        votesByJudge: {},
-        scores: [],
-        toast: { show: false, msg: '' },
+        judgeToken: '',
+        phase: 'submit',
+        hashAdmin: false,
+        showResults: false,
+        toast: {show:false,msg:''},
+        results: [],
         countdown: '',
-        totalJudges: 0,
-        importedJudges: 0,
-        // === lifecycle ===
+
+        // ===== INIT =====
         init() {
+          this.hashAdmin = location.hash.includes('admin');
+          const url = new URL(window.location.href);
+          this.judgeToken = url.searchParams.get('judge') || '';
+
           this.loadConfig();
-          this.phase = this.getPhase();
-          this.isAdmin = location.hash === '#admin';
-          const params = new URLSearchParams(location.search);
-          this.judgeToken = params.get('judge');
-          this.isJudge = this.phase==='judge' && this.judgeToken && this.config.judges.includes(this.judgeToken);
-          if (this.isJudge) this.loadVotes();
-          this.totalJudges = this.config.judges.length;
-          if (this.phase==='results') { this.loadAllVotes(); this.computeScores(); }
+          this.computePhase();
+          if (this.isJudge) this.initVotes();
           if (this.phase==='party') this.startCountdown();
+
+          // re-evaluate on hash change
+          window.addEventListener('hashchange', () => { this.hashAdmin = location.hash.includes('admin'); });
         },
-        // === config ===
+
+        // ===== COMPUTED =====
+        get isJudge() { return this.phase==='judge' && this.config.judges.includes(this.judgeToken); },
+
+        // ===== CONFIG =====
         loadConfig() {
-          const raw = localStorage.getItem('w3m-config');
-          this.config = raw ? JSON.parse(raw) : this.demoConfig();
+          const local = localStorage.getItem('w3m-config');
+          this.config = local ? JSON.parse(local) : this.demoConfig();
         },
         saveConfig() {
           localStorage.setItem('w3m-config', JSON.stringify(this.config));
@@ -208,111 +233,134 @@
         },
         exportConfig() {
           const blob = new Blob([JSON.stringify(this.config,null,2)], {type:'application/json'});
-          const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:'challenge-config.json' });
-          a.click(); URL.revokeObjectURL(a.href);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href=url; a.download='challenge-config.json'; a.click(); URL.revokeObjectURL(url);
         },
         importConfig(e) {
           const file = e.target.files[0]; if(!file) return;
-          const r=new FileReader(); r.onload=()=>{ this.config=JSON.parse(r.result); this.saveConfig(); location.reload(); }; r.readAsText(file);
+          file.text().then(txt=>{
+            this.config = JSON.parse(txt);
+            this.saveConfig();
+            this.toastMsg('Config imported');
+          });
         },
-        // === phase helpers ===
-        getPhase() {
-          const today = new Date().setHours(0,0,0,0);
-          const ds = this.config.deadlines;
-          if (today <= new Date(ds.submit).setHours(0,0,0,0)) return 'submit';
-          if (today <= new Date(ds.judge).setHours(0,0,0,0)) return 'judge';
-          if (this.config.listeningParty && new Date() < new Date(this.config.listeningParty)) return 'party';
-          return 'results';
+
+        // ===== PHASE & TIME =====
+        computePhase() {
+          const today = new Date().toISOString().split('T')[0];
+          if (today <= this.config.submitUntil) this.phase='submit';
+          else if (today <= this.config.judgeUntil) this.phase='judge';
+          else if (this.config.listeningParty && new Date() <= new Date(this.config.listeningParty)) this.phase='party';
+          else this.phase='results';
         },
         startCountdown() {
-          const tgt = new Date(this.config.listeningParty); const pad=n=>n.toString().padStart(2,'0');
-          const tick=()=>{ const d=tgt-Date.now(); if(d<=0){location.reload();return;} const h=pad(Math.floor(d/3600000)); const m=pad(Math.floor(d/60000)%60); const s=pad(Math.floor(d/1000)%60); this.countdown=`${h}:${m}:${s}`; requestAnimationFrame(tick); }; tick();
+          const target = new Date(this.config.listeningParty);
+          const tick = ()=>{
+            const diff = target - new Date();
+            if(diff<=0){this.phase='results'; return;}
+            const h=Math.floor(diff/3.6e6), m=Math.floor((diff%3.6e6)/6e4), s=Math.floor((diff%6e4)/1e3);
+            this.countdown=`Starts in ${h}h ${m}m ${s}s`;
+            requestAnimationFrame(tick);
+          };
+          tick();
         },
-        get phaseBanner() {
-          switch(this.phase){
-            case 'submit': return {text:'Submissions Open', bg:'bg-emerald-700'};
-            case 'judge':  return {text:'Judging in Progress', bg:'bg-indigo-700'};
-            case 'party':  return {text:'Listening Party Countdown', bg:'bg-yellow-700'};
-            default:       return {text:'Results', bg:'bg-purple-700'};
-          }
-        },
-        // === voting (judge side) ===
-        voteKey(token){ return `votes-${token}`; },
-        loadVotes() {
-          const raw = localStorage.getItem(this.voteKey(this.judgeToken));
-          this.votes = raw ? JSON.parse(raw) : {};
-        },
-        saveVotes() {
-          localStorage.setItem(this.voteKey(this.judgeToken), JSON.stringify(this.votes));
-          this.toastMsg('Votes saved locally');
-        },
-        updateVote(songId, critId, val) {
-          if(!this.votes[songId]) this.votes[songId] = {};
-          this.votes[songId][critId] = parseFloat(val)||0;
-        },
-        getVote(songId, critId) {
-          return this.votes[songId]?.[critId] ?? '';
-        },
-        calcTotal(songId, voteSet) {
-          const votesSong = voteSet[songId] || {};
-          return this.config.criteria.reduce((sum,c)=>sum+((votesSong[c.id]||0)*c.weight),0);
-        },
-        exportVotes() {
-          const blob = new Blob([JSON.stringify(this.votes,null,2)], {type:'application/json'});
-          const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:`votes-${this.judgeToken}.json` });
-          a.click(); URL.revokeObjectURL(a.href);
-        },
-        // === admin vote import & results ===
-        loadAllVotes() {
-          this.votesByJudge = {};
-          this.importedJudges = 0;
-          this.config.judges.forEach(j=>{
-            const raw = localStorage.getItem(this.voteKey(j));
-            if(raw){ this.votesByJudge[j] = JSON.parse(raw); this.importedJudges++; }
+
+        // ===== CRITERIA OPS =====
+        addCriterion(type='slider') {
+          const id = 'c'+Date.now();
+          this.config.criteria.push(type==='slider'?{
+            id, type:'slider', settings:{label:'New Slider', weight:1}
+          }:{
+            id, type:'checkbox', settings:{label:'New Checkbox', score:1, checked:false}
           });
         },
-        importJudgeVotes(e){
-          const file = e.target.files[0]; if(!file) return;
-          const judgeMatch = file.name.match(/votes-(.*?)\.json/i);
-          const judgeId = judgeMatch ? judgeMatch[1] : prompt('Enter judge token for this file');
-          if(!judgeId){ this.toastMsg('Import cancelled'); return; }
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const data = JSON.parse(reader.result);
-              localStorage.setItem(this.voteKey(judgeId), JSON.stringify(data));
-              this.toastMsg(`Votes imported for ${judgeId}`);
-              this.loadAllVotes();
-            } catch(err){ this.toastMsg('Invalid JSON'); }
-          };
-          reader.readAsText(file);
-        },
-        computeScores() {
-          this.loadAllVotes();
-          const totals = this.config.songs.map(s=>({ song:s.title, total:0 }));
-          const judgeCount = Object.keys(this.votesByJudge).length || 1;
-          Object.entries(this.votesByJudge).forEach(([judge,voteSet])=>{
-            totals.forEach(t=>{
-              const songObj = this.config.songs.find(s=>s.title===t.song);
-              t.total += this.calcTotal(songObj.id, voteSet);
+        swap(arr,i,j){[arr[i],arr[j]]=[arr[j],arr[i]];},
+
+        // ===== VOTES =====
+        initVotes() {
+          const key='votes-'+this.judgeToken;
+          const stored=localStorage.getItem(key);
+          this.votes = stored?JSON.parse(stored):{};
+          // ensure structure
+          this.config.songs.forEach(s=>{
+            if(!this.votes[s.id]) this.votes[s.id] = {};
+            this.config.criteria.forEach(c=>{
+              if(!(c.id in this.votes[s.id])) {
+                this.votes[s.id][c.id] = c.type==='checkbox'?c.settings.checked:false;
+              }
             });
           });
-          // average
-          totals.forEach(t=>{ t.total = t.total / judgeCount; });
-          this.scores = totals.sort((a,b)=>b.total-a.total);
         },
-        // === toast helper ===
-        toastMsg(msg){this.toast.msg=msg; this.toast.show=true; setTimeout(()=>this.toast.show=false,2500);},
-        // === demo ===
-        demoConfig() {
+        voteValue(songId,critId){return this.votes[songId][critId];},
+        saveVotes(){
+          localStorage.setItem('votes-'+this.judgeToken, JSON.stringify(this.votes));
+          this.toastMsg('Votes saved locally');
+        },
+        exportVotes(){
+          const blob = new Blob([JSON.stringify(this.votes,null,2)], {type:'application/json'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href=url; a.download='votes-'+this.judgeToken+'.json'; a.click(); URL.revokeObjectURL(url);
+        },
+        importVotes(e){
+          const file = e.target.files[0]; if(!file) return;
+          const judge=file.name.replace(/\.json$/,'').split('votes-')[1]||'imported';
+          file.text().then(t=>{
+            localStorage.setItem('votes-'+judge,t);
+            this.toastMsg('Votes from '+judge+' imported');
+          });
+        },
+
+        // ===== RESULTS AGGREGATION =====
+        computeScores(){
+          const allVotes=this.loadAllVotes();
+          const songTotals={};
+          // init totals
+          this.config.songs.forEach(s=>songTotals[s.id]={title:s.title,total:0});
+          const judgeCount=Object.keys(allVotes).length||1;
+          for(const [j,v] of Object.entries(allVotes)){
+            for(const [songId,critMap] of Object.entries(v)){
+              let subtotal=0;
+              this.config.criteria.forEach(c=>{
+                const val=critMap[c.id];
+                if(c.type==='checkbox') subtotal += (val?c.settings.score:0);
+                else subtotal += (val||0)*c.settings.weight;
+              });
+              songTotals[songId].total += subtotal;
+            }
+          }
+          // average
+          this.results = Object.entries(songTotals).map(([id,obj])=>({...obj,total:obj.total/judgeCount,id})).sort((a,b)=>b.total-a.total);
+        },
+        loadAllVotes(){
+          const out={};
+          Object.keys(localStorage).filter(k=>k.startsWith('votes-')).forEach(k=>{
+            out[k.replace('votes-','')] = JSON.parse(localStorage.getItem(k));
+          });
+          return out;
+        },
+        medal(idx){return ['🥇','🥈','🥉'][idx]||idx+1;},
+
+        // ===== TOAST =====
+        toastMsg(msg){this.toast.msg=msg; this.toast.show=true; setTimeout(()=>this.toast.show=false,2000);},
+
+        // ===== DEMO CONFIG =====
+        demoConfig(){
           return {
-            name:'Web3 Metal Challenge',
+            name:'Demo Challenge',
             description:'Demo challenge loaded from inline defaults. Edit via #admin.',
-            submissionForm:'https://example.com',
-            deadlines:{ submit:'2025-06-30', judge:'2025-07-07' },
-            listeningParty:'',
-            criteria:[ {id:'riff', label:'Riff Quality', weight:2}, {id:'mix', label:'Mix & Master', weight:1}, {id:'vibe', label:'Overall Vibe', weight:2} ],
-            songs:[ {id:'track1', title:'Demo Track 1', artist:'Some Band', link:''}, {id:'track2', title:'Demo Track 2', artist:'Another Band', link:''} ],
+            submitUntil:'2025-06-15',
+            judgeUntil:'2025-06-22',
+            listeningParty:'2025-06-23T20:00',
+            criteria:[
+              {id:'riff',type:'slider',settings:{label:'Riff Quality',weight:1}},
+              {id:'mix',type:'slider',settings:{label:'Mix Clarity',weight:1}},
+              {id:'kvlt',type:'checkbox',settings:{label:'KVLT bonus',score:5,checked:false}}
+            ],
+            songs:[
+              {id:'s1',title:'Frost Hammer',link:'#'},
+              {id:'s2',title:'Steel Skies',link:'#'}
+            ],
             judges:['alpha','bravo']
           };
         }
