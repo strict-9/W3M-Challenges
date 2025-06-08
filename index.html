@@ -1,428 +1,192 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full bg-gray-950 text-gray-100">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Web3 Metal Challenge Voting Portal</title>
-  <!-- Tailwind via CDN -->
+  <!-- Tailwind (stand‑alone CDN build) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Alpine.js for lightweight reactivity -->
+  <!-- Alpine.js for interactivity -->
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <style>[x-cloak]{display:none !important}</style>
 </head>
-<body class="h-full bg-zinc-900 text-zinc-200" x-data="portalApp()" x-init="init()">
-  <!-- HEADER -->
-  <header class="w-full bg-zinc-800 shadow-md">
-    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-xl font-bold">Web3 Metal Challenge Voting Portal</h1>
-      <template x-if="view==='admin'">
-        <button @click="downloadConfig" class="px-3 py-1 bg-indigo-600 rounded text-sm">Export JSON</button>
+<body class="h-full flex flex-col" x-data="portal()" x-init="init()">
+  <!-- ========= PUBLIC LANDING ========= -->
+  <main class="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-6">
+    <template x-if="config">
+      <h1 class="text-4xl font-extrabold tracking-tight" x-text="config.name"></h1>
+    </template>
+
+    <p class="max-w-xl" x-text="config.description"></p>
+
+    <!-- Phase banner -->
+    <div class="px-4 py-2 rounded-lg shadow-md" :class="phaseBanner.bg">
+      <span class="font-semibold" x-text="phaseBanner.text"></span>
+      <template x-if="phase==='party'">
+        <span class="ml-2" x-text="countdown"></span>
       </template>
     </div>
-  </header>
 
-  <!-- MAIN CONTENT -->
-  <main class="max-w-4xl mx-auto px-4 py-6">
-    <!-- PUBLIC LANDING / SCOREBOARD -->
-    <section x-show="view==='public'" x-cloak>
-      <h2 class="text-2xl font-semibold mb-2" x-text="config.challengeName"></h2>
-      <p class="mb-4" x-text="config.description"></p>
+    <template x-if="phase==='submit'">
+      <a :href="config.submissionForm" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Submit your track</a>
+    </template>
 
-      <!-- Countdown / phase banner -->
-      <div class="mb-6" x-html="phaseBanner()"></div>
-
-      <!-- Optional listening party -->
-      <template x-if="config.listeningParty">
-        <p class="italic mb-6">🎧 Listening party: <span x-text="new Date(config.listeningParty).toLocaleString()"></span></p>
-      </template>
-
-      <!-- Song list (during submission phase) -->
-      <template x-if="phase==='submission'">
-        <div>
-          <h3 class="font-semibold mb-2">Submitted Songs</h3>
-          <ul class="space-y-3">
-            <template x-for="song in config.songs" :key="song.id">
-              <li class="border border-zinc-700 rounded p-3">
-                <div class="flex items-center space-x-3">
-                  <img :src="song.artworkUrl" alt="art" class="w-16 h-16 object-cover rounded" />
-                  <div>
-                    <p class="font-medium" x-text="song.title"></p>
-                    <a :href="song.artistUrl" class="text-indigo-400 hover:underline" x-text="song.artist"></a>
-                  </div>
-                </div>
-              </li>
-            </template>
-          </ul>
-        </div>
-      </template>
-
-      <!-- Scoreboard (after judging) -->
-      <template x-if="phase==='complete' && Object.keys(aggregatedScores).length">
-        <div class="overflow-auto mt-8">
-          <h3 class="font-semibold mb-2">Scoreboard</h3>
-          <table class="min-w-full text-sm">
-            <thead>
-              <tr>
-                <th class="px-2 py-1 text-left">Song</th>
-                <template x-for="j in config.judges">
-                  <th class="px-2 py-1" x-text="j.name"></th>
-                </template>
-                <th class="px-2 py-1">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="song in config.songs" :key="song.id">
-                <tr class="border-t border-zinc-700">
-                  <td class="px-2 py-1" x-text="song.title"></td>
-                  <template x-for="j in config.judges">
-                    <td class="px-2 py-1 text-center" x-text="votes[j.id]?.[song.id]?.total ?? '-' "></td>
-                  </template>
-                  <td class="px-2 py-1 font-semibold text-center" x-text="aggregatedScores[song.id] ?? '-' "></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </template>
-    </section>
-
-    <!-- JUDGE FLOW -->
-    <section x-show="view==='judge'" x-cloak>
-      <template x-if="currentSong">
-        <div>
-          <h2 class="text-xl font-semibold mb-4" x-text="currentSong.title"></h2>
-          <div class="mb-4 flex flex-col md:flex-row md:space-x-6">
-            <img :src="currentSong.artworkUrl" alt="artwork" class="w-56 h-56 object-cover rounded mb-4 md:mb-0" />
-            <div class="flex-1 space-y-2">
-              <div x-html="currentSong.embedHtml"></div>
-              <a :href="currentSong.listenUrl" target="_blank" class="text-indigo-400 hover:underline">Open in new tab</a>
-            </div>
-          </div>
-
-          <!-- Criteria sliders / checkboxes -->
-          <form @submit.prevent="nextOrSummary">
-            <template x-for="c in config.criteria" :key="c.id">
-              <div class="mb-4">
-                <template x-if="c.type==='scale'">
-                  <label class="block mb-1" :for="c.id" x-text="c.label + ' (' + (scores[c.id] ?? 0) + '/' + c.max + ')'"></label>
-                </template>
-                <template x-if="c.type==='checkbox'">
-                  <label class="inline-flex items-center space-x-2" :for="c.id">
-                    <input type="checkbox" :id="c.id" x-model="scores[c.id]" true-value="1" false-value="0" class="form-checkbox rounded text-indigo-600" />
-                    <span x-text="c.label + ' (\u2212' + Math.abs(c.weight) + ' if checked)' "></span>
-                  </label>
-                </template>
-                <template x-if="c.type==='scale'">
-                  <input type="range" :id="c.id" :max="c.max" min="0" step="1" x-model.number="scores[c.id]" class="w-full mt-1" />
-                </template>
-              </div>
-            </template>
-
-            <button type="submit" class="px-4 py-2 bg-indigo-600 rounded mt-4">
-              <span x-text="songIndex < config.songs.length - 1 ? 'Save & Next' : 'Summary' "></span>
-            </button>
-          </form>
-        </div>
-      </template>
-
-      <!-- SUMMARY -->
-      <section x-show="step==='summary'">
-        <h2 class="text-2xl font-semibold mb-4">Review Your Scores</h2>
-        <table class="min-w-full text-sm">
-          <thead>
-            <tr>
-              <th class="px-2 py-1 text-left">Song</th>
-              <template x-for="c in config.criteria"><th class="px-2 py-1" x-text="c.label"></th></template>
-              <th class="px-2 py-1">Total</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="(song, idx) in config.songs" :key="song.id">
-              <tr class="border-t border-zinc-700">
-                <td class="px-2 py-1" x-text="song.title"></td>
-                <template x-for="c in config.criteria">
-                  <td class="px-2 py-1 text-center" x-text="judgeVotes[song.id]?.[c.id]"></td>
-                </template>
-                <td class="px-2 py-1 font-semibold text-center" x-text="judgeVotes[song.id]?.total"></td>
-                <td class="px-2 py-1 text-right">
-                  <button @click="editSong(idx)" class="text-indigo-400 hover:underline text-xs">Edit</button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <button @click="submitVotes" class="mt-6 px-4 py-2 bg-green-600 rounded">Confirm & Submit</button>
-      </section>
-    </section>
-
-    <!-- ADMIN CONSOLE -->
-    <section x-show="view==='admin'" x-cloak>
-      <h2 class="text-2xl font-semibold mb-4">Admin Console</h2>
-      <div class="mb-8 space-y-6">
-        <!-- Basic Challenge Info -->
-        <div>
-          <h3 class="font-semibold mb-2">Challenge Info</h3>
-          <label class="block mb-1">Name</label>
-          <input type="text" x-model="config.challengeName" class="w-full p-2 rounded bg-zinc-800 border border-zinc-700" />
-
-          <label class="block mt-4 mb-1">Description</label>
-          <textarea x-model="config.description" rows="3" class="w-full p-2 rounded bg-zinc-800 border border-zinc-700"></textarea>
-
-          <label class="block mt-4 mb-1">Listening Party (UTC, optional)</label>
-          <input type="datetime-local" x-model="config.listeningParty" class="p-2 rounded bg-zinc-800 border border-zinc-700" />
-        </div>
-
-        <!-- Judges CRUD -->
-        <div>
-          <h3 class="font-semibold mb-2">Judges</h3>
-          <template x-for="j in config.judges" :key="j.id">
-            <div class="flex items-center space-x-2 mb-2">
-              <input x-model="j.name" class="flex-1 p-1 rounded bg-zinc-800 border border-zinc-700" />
-              <button @click="removeJudge(j.id)" class="px-2 bg-red-600 rounded text-xs">Remove</button>
-            </div>
-          </template>
-          <button @click="addJudge" class="mt-2 px-2 py-1 bg-indigo-600 rounded text-sm">Add Judge</button>
-        </div>
-
-        <!-- Criteria CRUD -->
-        <div>
-          <h3 class="font-semibold mb-2">Criteria</h3>
-          <template x-for="c in config.criteria" :key="c.id">
-            <div class="grid grid-cols-6 gap-2 mb-2">
-              <input x-model="c.label" class="col-span-2 p-1 rounded bg-zinc-800 border border-zinc-700" />
-              <select x-model="c.type" class="p-1 rounded bg-zinc-800 border border-zinc-700">
-                <option value="scale">scale</option>
-                <option value="checkbox">checkbox</option>
-              </select>
-              <input type="number" x-model.number="c.max" class="p-1 rounded bg-zinc-800 border border-zinc-700" placeholder="max" />
-              <input type="number" x-model.number="c.weight" class="p-1 rounded bg-zinc-800 border border-zinc-700" placeholder="weight" />
-              <button @click="removeCriterion(c.id)" class="px-2 bg-red-600 rounded text-xs">Remove</button>
-            </div>
-          </template>
-          <button @click="addCriterion" class="mt-2 px-2 py-1 bg-indigo-600 rounded text-sm">Add Criterion</button>
-        </div>
-
-        <!-- Songs CRUD -->
-        <div>
-          <h3 class="font-semibold mb-2">Songs</h3>
-          <template x-for="s in config.songs" :key="s.id">
-            <div class="mb-4 border border-zinc-700 p-3 rounded">
-              <div class="grid grid-cols-2 gap-2">
-                <input x-model="s.title" placeholder="Title" class="p-1 rounded bg-zinc-800 border border-zinc-700" />
-                <input x-model="s.artist" placeholder="Artist" class="p-1 rounded bg-zinc-800 border border-zinc-700" />
-                <input x-model="s.artistUrl" placeholder="Artist URL" class="p-1 rounded bg-zinc-800 border border-zinc-700 col-span-2" />
-                <input x-model="s.artworkUrl" placeholder="Artwork URL" class="p-1 rounded bg-zinc-800 border border-zinc-700 col-span-2" />
-                <input x-model="s.listenUrl" placeholder="Listen URL" class="p-1 rounded bg-zinc-800 border border-zinc-700 col-span-2" />
-              </div>
-              <label class="block mt-2 mb-1 text-xs">Embed HTML</label>
-              <textarea x-model="s.embedHtml" rows="2" class="w-full p-1 rounded bg-zinc-800 border border-zinc-700 text-xs"></textarea>
-              <button @click="removeSong(s.id)" class="mt-2 px-2 bg-red-600 rounded text-xs">Remove</button>
-            </div>
-          </template>
-          <button @click="addSong" class="px-2 py-1 bg-indigo-600 rounded text-sm">Add Song</button>
-        </div>
-
-        <button @click="saveConfig" class="w-full py-2 bg-green-600 rounded text-lg">Save Changes</button>
-      </div>
-    </section>
+    <template x-if="phase==='results'">
+      <button class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-500" @click="showScoreboard=true">View Results</button>
+    </template>
   </main>
 
-  <!-- FOOTER -->
-  <footer class="text-center text-xs text-zinc-500 py-4">Self‑hostable SPA built for the Web3 Metal community • v0.1</footer>
+  <!-- ========= SCOREBOARD ========= -->
+  <div class="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center p-6" x-show="showScoreboard" x-transition>
+    <div class="bg-gray-900 w-full max-w-2xl rounded-xl p-6 space-y-4 relative">
+      <button class="absolute right-4 top-4 text-xl" @click="showScoreboard=false">✕</button>
+      <h2 class="text-2xl font-bold mb-4">Results</h2>
+      <template x-if="scores.length===0">
+        <p>No scores yet…</p>
+      </template>
+      <ul class="space-y-2" x-show="scores.length">
+        <template x-for="row in scores" :key="row.song">
+          <li class="flex justify-between border-b border-gray-700 pb-1">
+            <span x-text="row.song"></span>
+            <span class="font-mono" x-text="row.total.toFixed(2)"></span>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </div>
 
-<script>
-function portalApp() {
-  return {
-    // Reactive state
-    config: {},
-    view: 'public',  // public | judge | admin
-    phase: 'pre',    // computed based on dates
-    aggregatedScores: {},
-    votes: {},       // all votes (id -> song -> scores)
+  <!-- ========= ADMIN PANEL ========= -->
+  <div class="fixed inset-0 bg-black/80 backdrop-blur overflow-y-auto p-6" x-show="isAdmin" x-transition>
+    <div class="bg-gray-900 w-full max-w-3xl mx-auto rounded-xl p-8 space-y-6">
+      <h2 class="text-3xl font-bold mb-2">Challenge Settings</h2>
+      <fieldset class="grid sm:grid-cols-2 gap-4">
+        <label class="flex flex-col gap-1">
+          <span>Name</span>
+          <input type="text" class="p-2 bg-gray-800 rounded" x-model="config.name" />
+        </label>
+        <label class="flex flex-col gap-1 sm:col-span-2">
+          <span>Description</span>
+          <textarea rows="2" class="p-2 bg-gray-800 rounded" x-model="config.description"></textarea>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Submit Until</span>
+          <input type="date" class="p-2 bg-gray-800 rounded" x-model="config.deadlines.submit" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Judge Until</span>
+          <input type="date" class="p-2 bg-gray-800 rounded" x-model="config.deadlines.judge" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Listening Party (ISO datetime, optional)</span>
+          <input type="datetime-local" class="p-2 bg-gray-800 rounded" x-model="config.listeningParty" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Submission Form URL</span>
+          <input type="url" class="p-2 bg-gray-800 rounded" x-model="config.submissionForm" />
+        </label>
+      </fieldset>
 
-    // judge state
-    judgeId: null,
-    token: null,
-    songIndex: 0,
-    currentSong: null,
-    scores: {},      // in-flight scores for the active song
-    judgeVotes: {},  // votes for this judge only
-    step: 'voting',  // voting | summary
+      <div class="flex gap-4 pt-4 border-t border-gray-700">
+        <button class="px-4 py-2 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveConfig">Save</button>
+        <button class="px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportConfig">Export JSON</button>
+        <label class="px-4 py-2 bg-amber-600 rounded hover:bg-amber-500 cursor-pointer">
+          Import JSON
+          <input type="file" class="hidden" @change="importConfig($event)" accept="application/json" />
+        </label>
+      </div>
+    </div>
+  </div>
 
-    init() {
-      // Load config from localStorage or default
-      const stored = localStorage.getItem('wmc-config');
-      if (stored) {
-        this.config = JSON.parse(stored);
-      } else {
-        this.config = this.defaultConfig();
-      }
+  <!-- ========= TOAST ========= -->
+  <div class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 px-4 py-2 rounded-lg" x-show="toast.show" x-text="toast.msg" x-transition></div>
 
-      // Load votes
-      this.votes = JSON.parse(localStorage.getItem('wmc-votes') || '{}');
-
-      // Determine view
-      const url = new URL(window.location.href);
-      this.token = url.searchParams.get('token');
-      if (window.location.hash === '#admin') {
-        this.view = 'admin';
-      } else if (this.token) {
-        this.initJudgeView();
-      } else {
-        this.view = 'public';
-      }
-
-      this.computePhase();
-      this.aggregateTotals();
-    },
-
-    /* ---------- PUBLIC PHASE BANNER ---------- */
-    phaseBanner() {
-      if (this.phase === 'submission') return '<span class="font-semibold text-amber-400">Submission phase open</span>';
-      if (this.phase === 'judging') return '<span class="font-semibold text-blue-400">Judging in progress</span>';
-      if (this.phase === 'complete') return '<span class="font-semibold text-green-400">Judging complete • results below</span>';
-      return '';
-    },
-
-    computePhase() {
-      const now = new Date();
-      const d = this.config.dates;
-      if (now < new Date(d.submitStart)) this.phase = 'pre';
-      else if (now <= new Date(d.submitEnd)) this.phase = 'submission';
-      else if (now <= new Date(d.judgeEnd)) this.phase = 'judging';
-      else this.phase = 'complete';
-    },
-
-    /* ---------- JUDGE VIEW ---------- */
-    initJudgeView() {
-      const judge = this.config.judges.find(j => j.token === this.token);
-      if (!judge) {
-        alert('Invalid judge token');
-        this.view = 'public';
-        return;
-      }
-      this.judgeId = judge.id;
-      // Load judge's existing votes
-      this.judgeVotes = this.votes[this.judgeId] || {};
-      this.view = 'judge';
-      this.loadSong();
-    },
-
-    loadSong() {
-      this.currentSong = this.config.songs[this.songIndex];
-      this.scores = { ... (this.judgeVotes[this.currentSong.id] || {}) };
-    },
-
-    nextOrSummary() {
-      this.saveCurrentSongScores();
-      if (this.songIndex < this.config.songs.length - 1) {
-        this.songIndex++; this.loadSong();
-      } else {
-        this.step = 'summary';
-      }
-    },
-
-    saveCurrentSongScores() {
-      // Calculate total
-      let total = 0;
-      this.config.criteria.forEach(c => {
-        const val = Number(this.scores[c.id] || 0);
-        total += (c.type === 'checkbox' ? (val ? c.weight : 0) : val * c.weight);
-      });
-      this.scores.total = total;
-      // Persist into judgeVotes
-      this.$set(this.judgeVotes, this.currentSong.id, { ...this.scores });
-    },
-
-    editSong(idx) {
-      this.songIndex = idx;
-      this.step = 'voting';
-      this.loadSong();
-    },
-
-    submitVotes() {
-      this.votes[this.judgeId] = this.judgeVotes;
-      localStorage.setItem('wmc-votes', JSON.stringify(this.votes));
-      alert('Votes submitted!');
-      window.location.href = '/';
-    },
-
-    /* ---------- AGGREGATION ---------- */
-    aggregateTotals() {
-      this.aggregatedScores = {};
-      for (const judgeId in this.votes) {
-        const songVotes = this.votes[judgeId];
-        for (const songId in songVotes) {
-          this.aggregatedScores[songId] = (this.aggregatedScores[songId] || 0) + (songVotes[songId].total || 0);
+  <!-- ========= SCRIPT ========= -->
+  <script>
+    function portal() {
+      return {
+        // reactive state
+        config: null,
+        phase: 'submit',
+        showScoreboard: false,
+        isAdmin: false,
+        scores: [],
+        toast: { show: false, msg: '' },
+        countdown: '',
+        // helpers
+        init() {
+          this.loadConfig();
+          this.phase = this.getPhase();
+          this.isAdmin = location.hash === '#admin';
+          if (this.phase === 'party') this.startCountdown();
+        },
+        loadConfig() {
+          const raw = localStorage.getItem('w3m-config');
+          this.config = raw ? JSON.parse(raw) : this.demoConfig();
+        },
+        saveConfig() {
+          localStorage.setItem('w3m-config', JSON.stringify(this.config));
+          this.toastMsg('Config saved');
+        },
+        exportConfig() {
+          const blob = new Blob([JSON.stringify(this.config, null, 2)], {type:'application/json'});
+          const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'challenge-config.json' });
+          a.click(); URL.revokeObjectURL(a.href);
+        },
+        importConfig(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => { this.config = JSON.parse(reader.result); this.saveConfig(); };
+          reader.readAsText(file);
+        },
+        getPhase() {
+          const today = new Date().setHours(0,0,0,0);
+          const d = this.config.deadlines;
+          if (today <= new Date(d.submit).setHours(0,0,0,0)) return 'submit';
+          if (today <= new Date(d.judge).setHours(0,0,0,0)) return 'judge';
+          if (this.config.listeningParty && new Date() < new Date(this.config.listeningParty)) return 'party';
+          return 'results';
+        },
+        startCountdown() {
+          const target = new Date(this.config.listeningParty);
+          const pad = n => n.toString().padStart(2,'0');
+          const tick = () => {
+            const diff = target - Date.now();
+            if (diff <= 0) return location.reload();
+            const h = pad(Math.floor(diff/3600000));
+            const m = pad(Math.floor(diff/60000)%60);
+            const s = pad(Math.floor(diff/1000)%60);
+            this.countdown = `${h}:${m}:${s}`;
+            requestAnimationFrame(tick);
+          }; tick();
+        },
+        phaseBanner() {
+          switch(this.phase) {
+            case 'submit': return { text: 'Submissions Open', bg: 'bg-emerald-700' };
+            case 'judge':  return { text: 'Judging in Progress', bg: 'bg-indigo-700' };
+            case 'party':  return { text: 'Listening Party Countdown', bg: 'bg-yellow-700' };
+            default:       return { text: 'Results', bg: 'bg-purple-700' };
+          }
+        },
+        get phaseBanner() { return this.phaseBanner(); },
+        toastMsg(msg) {
+          this.toast.msg = msg; this.toast.show = true;
+          setTimeout(()=>this.toast.show=false, 2500);
+        },
+        // example config used on first load
+        demoConfig() {
+          return {
+            name: 'Web3 Metal Challenge',
+            description: 'Demo challenge loaded from inline defaults. Edit via #admin.',
+            submissionForm: 'https://example.com',
+            deadlines: { submit: '2025-06-30', judge: '2025-07-07' },
+            listeningParty: '',
+            criteria: [ { id:'riff', label:'Riff Quality', weight:1 } ],
+            songs: [],
+            judges: []
+          };
         }
       }
-    },
-
-    /* ---------- ADMIN METHODS ---------- */
-    saveConfig() {
-      localStorage.setItem('wmc-config', JSON.stringify(this.config));
-      alert('Configuration saved');
-    },
-    downloadConfig() {
-      const blob = new Blob([JSON.stringify({ ...this.config, votes: this.votes }, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'challenge.json'; a.click();
-      URL.revokeObjectURL(url);
-    },
-    addJudge() {
-      this.config.judges.push({ id: 'j' + Date.now(), name: 'Judge', token: crypto.randomUUID() });
-    },
-    removeJudge(id) {
-      this.config.judges = this.config.judges.filter(j => j.id !== id);
-    },
-    addCriterion() {
-      this.config.criteria.push({ id: 'c' + Date.now(), label: 'Criterion', type: 'scale', max: 10, weight: 1 });
-    },
-    removeCriterion(id) {
-      this.config.criteria = this.config.criteria.filter(c => c.id !== id);
-    },
-    addSong() {
-      this.config.songs.push({ id: 's' + Date.now(), title: '', artist: '', artistUrl: '', artworkUrl: '', listenUrl: '', embedHtml: '' });
-    },
-    removeSong(id) {
-      this.config.songs = this.config.songs.filter(s => s.id !== id);
-    },
-
-    /* ---------- DEFAULT CONFIG ---------- */
-    defaultConfig() {
-      return {
-        challengeName: 'Web3 Metal Summer Slam',
-        description: 'Who brings the most brutal AI metal track?',
-        dates: {
-          submitStart: '2025-06-01',
-          submitEnd: '2025-06-10',
-          judgeStart: '2025-06-11',
-          judgeEnd: '2025-06-17'
-        },
-        listeningParty: '',
-        judges: [
-          { id: 'j1', name: 'Demo Judge', token: 'demo-token' }
-        ],
-        criteria: [
-          { id: 'c1', label: 'Is it slam?', type: 'scale', max: 10, weight: 1 }
-        ],
-        songs: [
-          {
-            id: 's1',
-            title: 'Demo Track',
-            artist: 'SlamBot',
-            artistUrl: '',
-            artworkUrl: 'https://placekitten.com/300/300',
-            listenUrl: '',
-            embedHtml: ''
-          }
-        ]
-      };
     }
-  }
-}
-</script>
+  </script>
 </body>
 </html>
