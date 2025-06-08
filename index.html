@@ -258,6 +258,13 @@
       init(){
         this.loadConfig();
         this.detectPhase();
+        // open admin automatically if #admin in hash
+        this.showAdmin = window.location.hash === '#admin';
+        window.addEventListener('hashchange', () => {
+          this.showAdmin = window.location.hash === '#admin';
+        });
+        this.loadVotesFromStorage();
+      }
         this.loadVotesFromStorage();
       },
 
@@ -405,19 +412,7 @@
     }
   }
   </script>
-  <script>
-    // --- Restore #admin hash detection -----------------------------
-    document.addEventListener('alpine:init', () => {
-      // ensure we track adminMode centrally so every component sees updates
-      Alpine.store('ui', {
-        adminMode: window.location.hash === '#admin'
-      });
-      // flip on hash changes
-      window.addEventListener('hashchange', () => {
-        Alpine.store('ui').adminMode = window.location.hash === '#admin';
-      });
-    });
-  </script>
+  
 </body>
 </html>
 <!-- END v3.4 -->
