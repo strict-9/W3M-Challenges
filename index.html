@@ -4,18 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Web3 Metal Challenge Voting Portal</title>
-  <!-- Tailwind (stand‑alone CDN build) -->
+  <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Alpine.js for interactivity -->
+  <!-- Alpine.js -->
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="h-full flex flex-col" x-data="portal()" x-init="init()">
   <!-- ========= PUBLIC LANDING ========= -->
-  <main class="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-6">
-    <template x-if="config">
-      <h1 class="text-4xl font-extrabold tracking-tight" x-text="config.name"></h1>
-    </template>
-
+  <main class="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-6" x-show="!isJudge">
+    <h1 class="text-4xl font-extrabold tracking-tight" x-text="config.name"></h1>
     <p class="max-w-xl" x-text="config.description"></p>
 
     <!-- Phase banner -->
@@ -30,10 +27,62 @@
       <a :href="config.submissionForm" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Submit your track</a>
     </template>
 
-    <template x-if="phase==='results'">
+    <template x-if="phase==='results' && scores.length">
       <button class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-500" @click="showScoreboard=true">View Results</button>
     </template>
   </main>
+
+  <!-- ========= JUDGE PANEL ========= -->
+  <div class="flex-1 overflow-y-auto" x-show="isJudge">
+    <header class="p-4 bg-gray-900 flex items-center justify-between sticky top-0 z-10 shadow">
+      <h2 class="text-2xl font-bold" x-text="`Judge Panel – ${judgeToken}`"></h2>
+      <div class="flex gap-2">
+        <button class="px-3 py-1 bg-emerald-600 rounded hover:bg-emerald-500" @click="saveVotes">Save</button>
+        <button class="px-3 py-1 bg-indigo-600 rounded hover:bg-indigo-500" @click="exportVotes">Export JSON</button>
+      </div>
+    </header>
+
+    <template x-if="config.songs.length===0">
+      <p class="p-6 text-center">No songs configured yet…</p>
+    </template>
+
+    <template x-for="song in config.songs" :key="song.id">
+      <section class="border-b border-gray-800 p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-xl font-semibold" x-text="song.title"></h3>
+            <template x-if="song.artist"><p class="text-sm text-gray-400" x-text="song.artist"></p></template>
+          </div>
+          <template x-if="song.link">
+            <a :href="song.link" target="_blank" class="underline text-emerald-400 hover:text-emerald-300">Listen</a>
+          </template>
+        </div>
+
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-400">
+              <th class="py-1">Criterion</th>
+              <th class="py-1 w-24 text-right">Weight</th>
+              <th class="py-1 w-48 text-right">Score&nbsp;(0‑10)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="crit in config.criteria" :key="crit.id">
+              <tr>
+                <td class="py-1 pr-2" x-text="crit.label"></td>
+                <td class="py-1 pr-2 text-right" x-text="crit.weight"></td>
+                <td class="py-1 text-right">
+                  <input type="number" min="0" max="10" step="0.1" class="w-20 p-1 bg-gray-800 rounded text-right" :id="`${song.id}__${crit.id}`" @input="updateVote(song.id, crit.id, $event.target.value)" :value="getVote(song.id, crit.id)">
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <p class="text-right font-semibold">Total: <span x-text="calcTotal(song.id).toFixed(2)"></span></p>
+      </section>
+    </template>
+  </div>
 
   <!-- ========= SCOREBOARD ========= -->
   <div class="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center p-6" x-show="showScoreboard" x-transition>
@@ -83,6 +132,7 @@
           <span>Submission Form URL</span>
           <input type="url" class="p-2 bg-gray-800 rounded" x-model="config.submissionForm" />
         </label>
+        <!-- Future: criteria, songs, judges CRUD tables -->
       </fieldset>
 
       <div class="flex gap-4 pt-4 border-t border-gray-700">
@@ -103,21 +153,29 @@
   <script>
     function portal() {
       return {
-        // reactive state
+        // === state ===
         config: null,
         phase: 'submit',
         showScoreboard: false,
         isAdmin: false,
+        judgeToken: null,
+        isJudge: false,
+        votes: {},
         scores: [],
         toast: { show: false, msg: '' },
         countdown: '',
-        // helpers
+        // === lifecycle ===
         init() {
           this.loadConfig();
           this.phase = this.getPhase();
           this.isAdmin = location.hash === '#admin';
-          if (this.phase === 'party') this.startCountdown();
+          const params = new URLSearchParams(location.search);
+          this.judgeToken = params.get('judge');
+          this.isJudge = this.phase==='judge' && this.judgeToken && this.config.judges.includes(this.judgeToken);
+          if (this.isJudge) this.loadVotes();
+          if (this.phase==='party') this.startCountdown();
         },
+        // === config ===
         loadConfig() {
           const raw = localStorage.getItem('w3m-config');
           this.config = raw ? JSON.parse(raw) : this.demoConfig();
@@ -127,62 +185,74 @@
           this.toastMsg('Config saved');
         },
         exportConfig() {
-          const blob = new Blob([JSON.stringify(this.config, null, 2)], {type:'application/json'});
-          const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'challenge-config.json' });
+          const blob = new Blob([JSON.stringify(this.config,null,2)], {type:'application/json'});
+          const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:'challenge-config.json' });
           a.click(); URL.revokeObjectURL(a.href);
         },
         importConfig(e) {
-          const file = e.target.files[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => { this.config = JSON.parse(reader.result); this.saveConfig(); };
-          reader.readAsText(file);
+          const file = e.target.files[0]; if(!file) return;
+          const r=new FileReader(); r.onload=()=>{ this.config=JSON.parse(r.result); this.saveConfig(); location.reload(); }; r.readAsText(file);
         },
+        // === phase helpers ===
         getPhase() {
           const today = new Date().setHours(0,0,0,0);
-          const d = this.config.deadlines;
-          if (today <= new Date(d.submit).setHours(0,0,0,0)) return 'submit';
-          if (today <= new Date(d.judge).setHours(0,0,0,0)) return 'judge';
+          const ds = this.config.deadlines;
+          if (today <= new Date(ds.submit).setHours(0,0,0,0)) return 'submit';
+          if (today <= new Date(ds.judge).setHours(0,0,0,0)) return 'judge';
           if (this.config.listeningParty && new Date() < new Date(this.config.listeningParty)) return 'party';
           return 'results';
         },
         startCountdown() {
-          const target = new Date(this.config.listeningParty);
-          const pad = n => n.toString().padStart(2,'0');
-          const tick = () => {
-            const diff = target - Date.now();
-            if (diff <= 0) return location.reload();
-            const h = pad(Math.floor(diff/3600000));
-            const m = pad(Math.floor(diff/60000)%60);
-            const s = pad(Math.floor(diff/1000)%60);
-            this.countdown = `${h}:${m}:${s}`;
-            requestAnimationFrame(tick);
-          }; tick();
+          const tgt = new Date(this.config.listeningParty); const pad=n=>n.toString().padStart(2,'0');
+          const tick=()=>{ const d=tgt-Date.now(); if(d<=0){location.reload();return;} const h=pad(Math.floor(d/3600000)); const m=pad(Math.floor(d/60000)%60); const s=pad(Math.floor(d/1000)%60); this.countdown=`${h}:${m}:${s}`; requestAnimationFrame(tick); }; tick();
         },
-        phaseBanner() {
-          switch(this.phase) {
-            case 'submit': return { text: 'Submissions Open', bg: 'bg-emerald-700' };
-            case 'judge':  return { text: 'Judging in Progress', bg: 'bg-indigo-700' };
-            case 'party':  return { text: 'Listening Party Countdown', bg: 'bg-yellow-700' };
-            default:       return { text: 'Results', bg: 'bg-purple-700' };
+        get phaseBanner() {
+          switch(this.phase){
+            case 'submit': return {text:'Submissions Open', bg:'bg-emerald-700'};
+            case 'judge':  return {text:'Judging in Progress', bg:'bg-indigo-700'};
+            case 'party':  return {text:'Listening Party Countdown', bg:'bg-yellow-700'};
+            default:       return {text:'Results', bg:'bg-purple-700'};
           }
         },
-        get phaseBanner() { return this.phaseBanner(); },
-        toastMsg(msg) {
-          this.toast.msg = msg; this.toast.show = true;
-          setTimeout(()=>this.toast.show=false, 2500);
+        // === voting ===
+        voteKey() { return `votes-${this.judgeToken}`; },
+        loadVotes() {
+          const raw = localStorage.getItem(this.voteKey());
+          this.votes = raw ? JSON.parse(raw) : {};
         },
-        // example config used on first load
+        saveVotes() {
+          localStorage.setItem(this.voteKey(), JSON.stringify(this.votes));
+          this.toastMsg('Votes saved locally');
+        },
+        updateVote(songId, critId, val) {
+          if(!this.votes[songId]) this.votes[songId] = {};
+          this.votes[songId][critId] = parseFloat(val)||0;
+        },
+        getVote(songId, critId) {
+          return this.votes[songId]?.[critId] ?? '';
+        },
+        calcTotal(songId) {
+          const songVotes = this.votes[songId] || {};
+          return this.config.criteria.reduce((sum,c)=>sum+( (songVotes[c.id]||0)*c.weight),0);
+        },
+        exportVotes() {
+          const blob = new Blob([JSON.stringify(this.votes,null,2)], {type:'application/json'});
+          const a = Object.assign(document.createElement('a'), { href:URL.createObjectURL(blob), download:`votes-${this.judgeToken}.json` });
+          a.click(); URL.revokeObjectURL(a.href);
+        },
+        // === toast helper ===
+        toastMsg(msg){this.toast.msg=msg; this.toast.show=true; setTimeout(()=>this.toast.show=false,2500);},
+        // === demo ===
         demoConfig() {
           return {
-            name: 'Web3 Metal Challenge',
-            description: 'Demo challenge loaded from inline defaults. Edit via #admin.',
-            submissionForm: 'https://example.com',
-            deadlines: { submit: '2025-06-30', judge: '2025-07-07' },
-            listeningParty: '',
-            criteria: [ { id:'riff', label:'Riff Quality', weight:1 } ],
-            songs: [],
-            judges: []
+            name:'Web3 Metal Challenge',
+            description:'Demo challenge loaded from inline defaults. Edit via #admin.',
+            submissionForm:'https://example.com',
+            deadlines:{ submit:'2025-06-30', judge:'2025-07-07' },
+            listeningParty:'',
+            criteria:[ {id:'riff', label:'Riff Quality', weight:2}, {id:'mix', label:'Mix & Master', weight:1}, {id:'vibe', label:'Overall Vibe', weight:2} ],
+            songs:[ {id:'track1', title:'Demo Track 1', artist:'Some Band', link:''}, {id:'track2', title:'Demo Track 2', artist:'Another Band', link:''} ],
+            judges:['alpha','bravo']
           };
         }
       }
